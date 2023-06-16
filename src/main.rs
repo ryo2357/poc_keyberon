@@ -5,6 +5,7 @@
 #![no_main]
 
 use panic_halt as _;
+mod key_setting;
 
 #[rtic::app(device = rp_pico::hal::pac, peripherals = true, dispatchers = [PIO0_IRQ_0])]
 mod app {
@@ -31,13 +32,7 @@ mod app {
 
     static mut USB_BUS: Option<usb_device::bus::UsbBusAllocator<rp2040_hal::usb::UsbBus>> = None;
 
-    pub static LAYERS: keyberon::layout::Layers<1, 1, 1> = keyberon::layout::layout! {
-        {
-            [
-                A
-            ]
-        }
-    };
+    use crate::key_setting;
 
     #[shared]
     struct Shared {
@@ -47,14 +42,15 @@ mod app {
             rp2040_hal::usb::UsbBus,
             keyberon::keyboard::Keyboard<()>,
         >,
-        layout: Layout<1, 1, 1>,
+        layout: Layout<2, 2, 3>,
     }
 
     #[local]
     struct Local {
         watchdog: hal::watchdog::Watchdog,
-        matrix: Matrix<DynPin, DynPin, 1, 1>,
-        debouncer: Debouncer<[[bool; 1]; 1]>,
+        matrix: Matrix<DynPin, DynPin, 2, 2>,
+        debouncer: Debouncer<[[bool; 2]; 2]>,
+        // debouncer: Debouncer::new([[false; 13]; 4], [[false; 13]; 4], 5),
         alarm: hal::timer::Alarm0,
     }
 
@@ -87,22 +83,28 @@ mod app {
             &mut resets,
         );
         // 動かない
-        let mut led = pins.gpio12.into_push_pull_output();
-        led.set_high().unwrap();
+        // let mut led = pins.gpio12.into_push_pull_output();
+        // led.set_high().unwrap();
 
         // delay for power on
         for _ in 0..1000 {
             cortex_m::asm::nop();
         }
 
-        let matrix: Matrix<DynPin, DynPin, 1, 1> = Matrix::new(
-            [pins.gpio19.into_pull_up_input().into()],
-            [pins.gpio20.into_push_pull_output().into()],
+        let matrix: Matrix<DynPin, DynPin, 2, 2> = Matrix::new(
+            [
+                pins.gpio19.into_pull_up_input().into(),
+                pins.gpio10.into_pull_up_input().into(),
+            ],
+            [
+                pins.gpio20.into_push_pull_output().into(),
+                pins.gpio11.into_push_pull_output().into(),
+            ],
         )
         .unwrap();
 
-        let layout = Layout::new(&LAYERS);
-        let debouncer = Debouncer::new([[false; 1]; 1], [[false; 1]; 1], 20);
+        let layout = Layout::new(&key_setting::LAYERS);
+        let debouncer = Debouncer::new([[false; 2]; 2], [[false; 2]; 2], 20);
 
         let mut timer = hal::Timer::new(c.device.TIMER, &mut resets);
         let mut alarm = timer.alarm_0().unwrap();
