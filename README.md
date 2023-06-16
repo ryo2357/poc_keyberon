@@ -1,6 +1,6 @@
 # AE-RP2040 Rust 開発用テンプレート
 
-[rp-rs/rp2040-project-template](https://github.com/rp-rs/rp2040-project-template)を自分が使いやすいように調整
+AE-RP2040 で動作するキーボードファームウェア検証用リポジトリ
 
 ## usage
 
@@ -23,3 +23,10 @@ cargo build
 ```power shell
 cargo run
 ```
+
+## TODO
+
+- [ ] [keyberon](https://github.com/TeXitoi/keyberon)クレートの使用方法の習得
+- [ ] AE-RP2040 への対応
+- [ ] JIS キーボードへの対応
+- [ ] キーマップ変更の手順確立

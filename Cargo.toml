@@ -1,6 +1,6 @@
 [package]
 edition = "2021"
-name = "example_ae_rp2040"
+name = "rust_keyboard"
 version = "0.1.0"
 
 [dependencies]
@@ -12,6 +12,8 @@ defmt-rtt = "0.4.0"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 # rp-pico = "0.5"
 ae-rp2040 = { path = "./ae-rp2040" }
+# キーボードファームウェア
+keyberon = { git = "https://github.com/TeXitoi/keyberon" }
 
 
 # cargo build/run
