@@ -54,4 +54,8 @@ cargo run
 - [USB デバイスの定義](https://www.usb.org/sites/default/files/documents/hut1_12v2.pdf)
 - [キー配列比較表 | Electronic Information Research Laboratory](https://www.minagi.jp/2020/09/10/keyboardlayout_jis_us/)
 
-## rtic::app
+### キーの反応が悪い
+
+入力の度にレポートの処理は行われている
+
+ただし入力内容が８回遅延している。（８回前の入力が入ってくる）

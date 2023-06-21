@@ -1,5 +1,5 @@
-// [camrbuss/crkbd-rp2040-keyberon: Keyboard firmware for crkbd with Sparkfun Pro Micro RP2040](https://github.com/camrbuss/crkbd-rp2040-keyberon/tree/main)
-// 上記リポジトリを参考に修正
+//! One key keyboard example using keyberon crate.
+//! Based on https://github.com/camrbuss/pinci implementation.
 
 #![no_std]
 #![no_main]
@@ -7,28 +7,43 @@
 use panic_halt as _;
 mod key_setting;
 
-#[rtic::app(device = rp_pico::hal::pac, peripherals = true, dispatchers = [PIO0_IRQ_0, PIO0_IRQ_1, PIO1_IRQ_0])]
+#[rtic::app(device = rp_pico::hal::pac, peripherals = true, dispatchers = [PIO0_IRQ_0])]
 mod app {
-    use cortex_m::prelude::_embedded_hal_watchdog_Watchdog;
-    use cortex_m::prelude::_embedded_hal_watchdog_WatchdogEnable;
-    use embedded_hal::digital::v2::OutputPin;
+    use cortex_m::prelude::{
+        _embedded_hal_watchdog_Watchdog, _embedded_hal_watchdog_WatchdogEnable,
+    };
+    use rp2040_hal::{
+        clocks::{init_clocks_and_plls, Clock},
+        gpio::{bank0::*, dynpin::DynPin},
+        pac::{CorePeripherals, I2C0, PIO0, RESETS, SPI0},
+        pio::{PIOExt, SM0, SM1},
+        sio::Sio,
+        timer::{Alarm, Alarm2, Alarm3, Timer},
+        usb::UsbBus,
+        watchdog::Watchdog,
+    };
+    use rp_pico::{hal, XOSC_CRYSTAL_FREQ};
+
+    use embedded_hal::{prelude::*, watchdog};
     use keyberon::debounce::Debouncer;
     use keyberon::key_code;
     use keyberon::layout::{self, Layout};
     use keyberon::matrix::Matrix;
-    use rp_pico::{
-        hal::{
-            self, clocks::init_clocks_and_plls, gpio::DynPin, sio::Sio, timer::Alarm, usb::UsbBus,
-            watchdog::Watchdog,
-        },
-        XOSC_CRYSTAL_FREQ,
-    };
+    // use rp_pico::{
+    //     hal::{
+    //         self, clocks::init_clocks_and_plls, gpio::DynPin, sio::Sio, timer::Alarm, usb::UsbBus,
+    //         watchdog::Watchdog,
+    //     },
+    //     XOSC_CRYSTAL_FREQ,
+    // };
     use usb_device::class_prelude::*;
     use usb_device::device::UsbDeviceState;
 
     use rp2040_monotonic::fugit::MicrosDurationU32;
 
     const SCAN_TIME_US: MicrosDurationU32 = MicrosDurationU32::micros(1000);
+    // MicrosDurationU32::micros(1000);
+    // const SCAN_TIME_US: u32 = 2000;
 
     static mut USB_BUS: Option<usb_device::bus::UsbBusAllocator<rp2040_hal::usb::UsbBus>> = None;
 
@@ -44,7 +59,6 @@ mod app {
         >,
         layout: Layout<2, 2, 3>,
     }
-
     #[local]
     struct Local {
         watchdog: hal::watchdog::Watchdog,
@@ -53,7 +67,6 @@ mod app {
         // debouncer: Debouncer::new([[false; 13]; 4], [[false; 13]; 4], 5),
         alarm: hal::timer::Alarm0,
     }
-
     #[init]
     fn init(c: init::Context) -> (Shared, Local, init::Monotonics) {
         // Soft-reset does not release the hardware spinlocks
@@ -83,30 +96,28 @@ mod app {
             &mut resets,
         );
         // 動かない
-        let mut led = pins.gpio12.into_push_pull_output();
-        led.set_high().unwrap();
+        // let mut led = pins.gpio12.into_push_pull_output();
+        // led.set_high().unwrap();
 
         // delay for power on
-        // for _ in 0..1000 {
-        //     cortex_m::asm::nop();
-        // }
+        for _ in 0..1000 {
+            cortex_m::asm::nop();
+        }
 
-        let matrix: Matrix<DynPin, DynPin, 2, 2> = cortex_m::interrupt::free(move |_cs| {
-            Matrix::new(
-                [
-                    pins.gpio19.into_pull_up_input().into(),
-                    pins.gpio10.into_pull_up_input().into(),
-                ],
-                [
-                    pins.gpio20.into_push_pull_output().into(),
-                    pins.gpio11.into_push_pull_output().into(),
-                ],
-            )
-        })
+        let matrix: Matrix<DynPin, DynPin, 2, 2> = Matrix::new(
+            [
+                pins.gpio19.into_pull_up_input().into(),
+                pins.gpio10.into_pull_up_input().into(),
+            ],
+            [
+                pins.gpio20.into_push_pull_output().into(),
+                pins.gpio11.into_push_pull_output().into(),
+            ],
+        )
         .unwrap();
 
         let layout = Layout::new(&key_setting::LAYERS);
-        let debouncer = Debouncer::new([[false; 2]; 2], [[false; 2]; 2], 20);
+        let debouncer = Debouncer::new([[false; 2]; 2], [[false; 2]; 2], 5);
 
         let mut timer = hal::Timer::new(c.device.TIMER, &mut resets);
         let mut alarm = timer.alarm_0().unwrap();
@@ -127,7 +138,7 @@ mod app {
         let usb_dev = keyberon::new_device(unsafe { USB_BUS.as_ref().unwrap() });
 
         // Start watchdog and feed it with the lowest priority task at 1000hz
-        watchdog.start(MicrosDurationU32::micros(10_000));
+        watchdog.start(MicrosDurationU32::micros(10000));
 
         (
             Shared {
@@ -145,7 +156,7 @@ mod app {
         )
     }
 
-    #[task(binds = USBCTRL_IRQ, priority = 3, shared = [usb_dev, usb_class])]
+    #[task(binds = USBCTRL_IRQ, priority = 4, shared = [usb_dev, usb_class])]
     fn usb_rx(c: usb_rx::Context) {
         let usb = c.shared.usb_dev;
         let kb = c.shared.usb_class;
@@ -158,15 +169,16 @@ mod app {
 
     #[task(priority = 2, capacity = 8, shared = [usb_dev, usb_class, layout])]
     fn handle_event(mut c: handle_event::Context, event: Option<layout::Event>) {
+        let mut layout = c.shared.layout;
         match event {
             None => (),
             Some(e) => {
-                c.shared.layout.lock(|l| l.event(e));
+                layout.lock(|l| l.event(e));
                 return;
             }
         };
 
-        let report: key_code::KbHidReport = c.shared.layout.lock(|l| l.keycodes().collect());
+        let report: key_code::KbHidReport = layout.lock(|l| l.keycodes().collect());
         if !c
             .shared
             .usb_class
@@ -181,22 +193,21 @@ mod app {
     }
 
     #[task(
-        binds = TIMER_IRQ_0,
-        priority = 1,
+        binds = TIMER_IRQ_3,
+        priority = 2,
         local = [matrix, debouncer, watchdog, alarm],
     )]
     fn scan_timer_irq(c: scan_timer_irq::Context) {
+        c.local.watchdog.feed();
+
+        for event in c.local.debouncer.events(c.local.matrix.get().unwrap()) {
+            handle_event::spawn(Some(event)).unwrap();
+        }
+
+        handle_event::spawn(None).unwrap();
+
         let alarm = c.local.alarm;
         alarm.clear_interrupt();
         let _ = alarm.schedule(SCAN_TIME_US);
-
-        c.local.watchdog.feed();
-        let keys_pressed = c.local.matrix.get().unwrap();
-        let deb_events = c.local.debouncer.events(keys_pressed);
-
-        for event in deb_events {
-            handle_event::spawn(Some(event)).unwrap();
-        }
-        handle_event::spawn(None).unwrap();
     }
 }

@@ -1,5 +1,5 @@
-// [camrbuss/crkbd-rp2040-keyberon: Keyboard firmware for crkbd with Sparkfun Pro Micro RP2040](https://github.com/camrbuss/crkbd-rp2040-keyberon/tree/main)
-// 上記リポジトリを参考に修正
+//! One key keyboard example using keyberon crate.
+//! Based on https://github.com/camrbuss/pinci implementation.
 
 #![no_std]
 #![no_main]
@@ -83,26 +83,24 @@ mod app {
             &mut resets,
         );
         // 動かない
-        let mut led = pins.gpio12.into_push_pull_output();
-        led.set_high().unwrap();
+        // let mut led = pins.gpio12.into_push_pull_output();
+        // led.set_high().unwrap();
 
         // delay for power on
         // for _ in 0..1000 {
         //     cortex_m::asm::nop();
         // }
 
-        let matrix: Matrix<DynPin, DynPin, 2, 2> = cortex_m::interrupt::free(move |_cs| {
-            Matrix::new(
-                [
-                    pins.gpio19.into_pull_up_input().into(),
-                    pins.gpio10.into_pull_up_input().into(),
-                ],
-                [
-                    pins.gpio20.into_push_pull_output().into(),
-                    pins.gpio11.into_push_pull_output().into(),
-                ],
-            )
-        })
+        let matrix: Matrix<DynPin, DynPin, 2, 2> = Matrix::new(
+            [
+                pins.gpio19.into_pull_up_input().into(),
+                pins.gpio10.into_pull_up_input().into(),
+            ],
+            [
+                pins.gpio20.into_push_pull_output().into(),
+                pins.gpio11.into_push_pull_output().into(),
+            ],
+        )
         .unwrap();
 
         let layout = Layout::new(&key_setting::LAYERS);
