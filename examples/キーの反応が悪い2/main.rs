@@ -1,14 +1,15 @@
-//! One key keyboard example using keyberon crate.
-//! Based on https://github.com/camrbuss/pinci implementation.
-//! cargo.tomlまで合わせても８回遅延する
-//! keyberon側の問題である気がする
+// [camrbuss/crkbd-rp2040-keyberon: Keyboard firmware for crkbd with Sparkfun Pro Micro RP2040](https://github.com/camrbuss/crkbd-rp2040-keyberon/tree/main)
+// 上記リポジトリを参考に修正
+// Matrixをcortex_m::interrupt::freeでラップ
+// sharedとlocalは最新のkeyberonでは厳密に分けてるっぽいので変更を加えない
 
 #![no_std]
 #![no_main]
 
 use panic_halt as _;
+mod key_setting;
 
-#[rtic::app(device = rp_pico::hal::pac, peripherals = true, dispatchers = [PIO0_IRQ_0])]
+#[rtic::app(device = rp_pico::hal::pac, peripherals = true, dispatchers = [PIO0_IRQ_0, PIO0_IRQ_1, PIO1_IRQ_0])]
 mod app {
     use cortex_m::prelude::_embedded_hal_watchdog_Watchdog;
     use cortex_m::prelude::_embedded_hal_watchdog_WatchdogEnable;
@@ -27,19 +28,13 @@ mod app {
     use usb_device::class_prelude::*;
     use usb_device::device::UsbDeviceState;
 
-    use fugit::MicrosDurationU32;
+    use rp2040_monotonic::fugit::MicrosDurationU32;
 
     const SCAN_TIME_US: MicrosDurationU32 = MicrosDurationU32::micros(1000);
 
     static mut USB_BUS: Option<usb_device::bus::UsbBusAllocator<rp2040_hal::usb::UsbBus>> = None;
 
-    pub static LAYERS: keyberon::layout::Layers<1, 1, 1> = keyberon::layout::layout! {
-        {
-            [
-                C
-            ]
-        }
-    };
+    use crate::key_setting;
 
     #[shared]
     struct Shared {
@@ -49,14 +44,15 @@ mod app {
             rp2040_hal::usb::UsbBus,
             keyberon::keyboard::Keyboard<()>,
         >,
-        layout: Layout<1, 1, 1>,
+        layout: Layout<2, 2, 3>,
     }
 
     #[local]
     struct Local {
         watchdog: hal::watchdog::Watchdog,
-        matrix: Matrix<DynPin, DynPin, 1, 1>,
-        debouncer: Debouncer<[[bool; 1]; 1]>,
+        matrix: Matrix<DynPin, DynPin, 2, 2>,
+        debouncer: Debouncer<[[bool; 2]; 2]>,
+        // debouncer: Debouncer::new([[false; 13]; 4], [[false; 13]; 4], 5),
         alarm: hal::timer::Alarm0,
     }
 
@@ -88,23 +84,31 @@ mod app {
             sio.gpio_bank0,
             &mut resets,
         );
-
+        // 動かない
         let mut led = pins.gpio12.into_push_pull_output();
         led.set_high().unwrap();
 
         // delay for power on
-        for _ in 0..1000 {
-            cortex_m::asm::nop();
-        }
+        // for _ in 0..1000 {
+        //     cortex_m::asm::nop();
+        // }
 
-        let matrix: Matrix<DynPin, DynPin, 1, 1> = Matrix::new(
-            [pins.gpio20.into_pull_up_input().into()],
-            [pins.gpio19.into_push_pull_output().into()],
-        )
+        let matrix: Matrix<DynPin, DynPin, 2, 2> = cortex_m::interrupt::free(move |_cs| {
+            Matrix::new(
+                [
+                    pins.gpio19.into_pull_up_input().into(),
+                    pins.gpio10.into_pull_up_input().into(),
+                ],
+                [
+                    pins.gpio20.into_push_pull_output().into(),
+                    pins.gpio11.into_push_pull_output().into(),
+                ],
+            )
+        })
         .unwrap();
 
-        let layout = Layout::new(&LAYERS);
-        let debouncer = Debouncer::new([[false; 1]; 1], [[false; 1]; 1], 20);
+        let layout = Layout::new(&key_setting::LAYERS);
+        let debouncer = Debouncer::new([[false; 2]; 2], [[false; 2]; 2], 20);
 
         let mut timer = hal::Timer::new(c.device.TIMER, &mut resets);
         let mut alarm = timer.alarm_0().unwrap();
@@ -125,7 +129,7 @@ mod app {
         let usb_dev = keyberon::new_device(unsafe { USB_BUS.as_ref().unwrap() });
 
         // Start watchdog and feed it with the lowest priority task at 1000hz
-        watchdog.start(MicrosDurationU32::micros(10000));
+        watchdog.start(MicrosDurationU32::micros(10_000));
 
         (
             Shared {
@@ -145,14 +149,12 @@ mod app {
 
     #[task(binds = USBCTRL_IRQ, priority = 3, shared = [usb_dev, usb_class])]
     fn usb_rx(c: usb_rx::Context) {
-        let mut usb_d = c.shared.usb_dev;
-        let mut usb_c = c.shared.usb_class;
-        usb_d.lock(|d| {
-            usb_c.lock(|c| {
-                if d.poll(&mut [c]) {
-                    c.poll();
-                }
-            })
+        let usb = c.shared.usb_dev;
+        let kb = c.shared.usb_class;
+        (usb, kb).lock(|usb, kb| {
+            if usb.poll(&mut [kb]) {
+                kb.poll();
+            }
         });
     }
 
